@@ -263,48 +263,32 @@ void ggml_gemv_q4_0_4x4_q8_0(int n, float * GGML_RESTRICT s, size_t bs, const vo
         const block_q8_0 * a_ptr = (const block_q8_0 *) vy;
         float32x4_t acc = vdupq_n_f32(0);
         for (int b = 0; b < nb; b++) {
-            // --- activation 불러오기 (32개 값) ---
+            int8x16_t b0 = vld1q_s8((const int8_t *) b_ptr->qs);
+            int8x16_t b1 = vld1q_s8((const int8_t *) b_ptr->qs + 16);
+            int8x16_t b2 = vld1q_s8((const int8_t *) b_ptr->qs + 32);
+            int8x16_t b3 = vld1q_s8((const int8_t *) b_ptr->qs + 48);
+            float16x4_t bd = vld1_f16((const __fp16 *) b_ptr->d);
+
             int8x16_t a0 = vld1q_s8(a_ptr->qs);
             int8x16_t a1 = vld1q_s8(a_ptr->qs + qk/2);
-            float16x4_t ad = vld1_dup_f16(&a_ptr->d);
-            a_ptr++;
+            float16x4_t ad = vld1_dup_f16((const __fp16 *) &a_ptr->d);
 
-            // --- weight 불러오기 (4개 열 × 8바이트씩 = 32바이트) ---
-            uint8x16_t w01 = vld1q_u8((const uint8_t *) b_ptr->qs);        // 열0,1의 8바이트씩
-            uint8x16_t w23 = vld1q_u8((const uint8_t *)b_ptr->qs + 16);   // 열2,3의 8바이트씩
-            float16x4_t bd = vld1_f16((const __fp16 *)b_ptr->d);         // 열마다 scale (__fp16[4])
-
-            // 2비트 마스크
-            const uint8x16_t m2 = vdupq_n_u8(0x03);
-
-            // 각 2비트 그룹을 꺼내서 signed 값으로 만들기
-            // (b & 0x03) << 6  : 비트0-1
-            // (b >> 2 & 0x03) << 6 : 비트2-3
-            // (b >> 4 & 0x03) << 6 : 비트4-5
-            // (b >> 6 & 0x03) << 6 : 비트6-7
-            int8x16_t b0 = vshlq_n_s8(vreinterpretq_s8_u8(vandq_u8(w01,     m2)), 6);
-            int8x16_t b1 = vshlq_n_s8(vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(w01, 2), m2)), 6);
-            int8x16_t b2 = vshlq_n_s8(vreinterpretq_s8_u8(vandq_u8(w23,     m2)), 6);
-            int8x16_t b3 = vshlq_n_s8(vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(w23, 2), m2)), 6);
-
-            // --- dot-product (각 열마다) ---
             int32x4_t ret = vdupq_n_s32(0);
-            ret = vdotq_laneq_s32(ret, b0, a0, 0);
-            ret = vdotq_laneq_s32(ret, b1, a0, 1);
-            ret = vdotq_laneq_s32(ret, b2, a0, 2);
-            ret = vdotq_laneq_s32(ret, b3, a0, 3);
-            ret = vdotq_laneq_s32(ret, b0, a1, 0);
-            ret = vdotq_laneq_s32(ret, b1, a1, 1);
-            ret = vdotq_laneq_s32(ret, b2, a1, 2);
-            ret = vdotq_laneq_s32(ret, b3, a1, 3);
 
-            // --- scale 곱하고 누적 ---
-            // Q2_0에서는 2비트라서 2로 나눠주도록 vcvtq_n_f32_s32 두 번째 인자를 2로 설정
-            acc = vfmaq_f32(
-                acc,
-                vcvtq_n_f32_s32(ret, 2),
-                vmulq_f32(vcvt_f32_f16(ad), vcvt_f32_f16(bd))
-            );
+            ret = vdotq_laneq_s32(ret, b0 << 4, a0, 0);
+            ret = vdotq_laneq_s32(ret, b1 << 4, a0, 1);
+            ret = vdotq_laneq_s32(ret, b2 << 4, a0, 2);
+            ret = vdotq_laneq_s32(ret, b3 << 4, a0, 3);
+
+            ret = vdotq_laneq_s32(ret, b0 & 0xf0U, a1, 0);
+            ret = vdotq_laneq_s32(ret, b1 & 0xf0U, a1, 1);
+            ret = vdotq_laneq_s32(ret, b2 & 0xf0U, a1, 2);
+            ret = vdotq_laneq_s32(ret, b3 & 0xf0U, a1, 3);
+
+            acc = vfmaq_f32(acc, vcvtq_n_f32_s32(ret, 4),
+                            vmulq_f32(vcvt_f32_f16(ad), vcvt_f32_f16(bd)));
+            a_ptr++;
+            b_ptr++;
         }
         vst1q_f32(s, acc);
         s += ncols_interleaved;
