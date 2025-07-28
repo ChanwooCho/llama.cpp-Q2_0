@@ -265,8 +265,8 @@ void ggml_gemv_q4_0_4x4_q8_0(int n, float * GGML_RESTRICT s, size_t bs, const vo
         for (int b = 0; b < nb; b++) {
             int8x16_t b0 = vld1q_s8((const int8_t *) b_ptr->qs);
             int8x16_t b1 = vld1q_s8((const int8_t *) b_ptr->qs + 16);
-            int8x16_t b2 = vld1q_s8((const int8_t *) b_ptr->qs + 32);
-            int8x16_t b3 = vld1q_s8((const int8_t *) b_ptr->qs + 48);
+            // int8x16_t b2 = vld1q_s8((const int8_t *) b_ptr->qs + 32);
+            // int8x16_t b3 = vld1q_s8((const int8_t *) b_ptr->qs + 48);
             float16x4_t bd = vld1_f16((const __fp16 *) b_ptr->d);
 
             int8x16_t a0 = vld1q_s8(a_ptr->qs);
@@ -277,13 +277,13 @@ void ggml_gemv_q4_0_4x4_q8_0(int n, float * GGML_RESTRICT s, size_t bs, const vo
 
             ret = vdotq_laneq_s32(ret, b0 << 4, a0, 0);
             ret = vdotq_laneq_s32(ret, b1 << 4, a0, 1);
-            ret = vdotq_laneq_s32(ret, b2 << 4, a0, 2);
-            ret = vdotq_laneq_s32(ret, b3 << 4, a0, 3);
+            ret = vdotq_laneq_s32(ret, b0 << 4, a0, 2);
+            ret = vdotq_laneq_s32(ret, b1 << 4, a0, 3);
 
             ret = vdotq_laneq_s32(ret, b0 & 0xf0U, a1, 0);
             ret = vdotq_laneq_s32(ret, b1 & 0xf0U, a1, 1);
-            ret = vdotq_laneq_s32(ret, b2 & 0xf0U, a1, 2);
-            ret = vdotq_laneq_s32(ret, b3 & 0xf0U, a1, 3);
+            ret = vdotq_laneq_s32(ret, b0 & 0xf0U, a1, 2);
+            ret = vdotq_laneq_s32(ret, b1 & 0xf0U, a1, 3);
 
             acc = vfmaq_f32(acc, vcvtq_n_f32_s32(ret, 4),
                             vmulq_f32(vcvt_f32_f16(ad), vcvt_f32_f16(bd)));
