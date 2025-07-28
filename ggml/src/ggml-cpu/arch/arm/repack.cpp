@@ -272,7 +272,7 @@ void ggml_gemv_q4_0_4x4_q8_0(int n, float * GGML_RESTRICT s, size_t bs, const vo
             // --- weight 불러오기 (4개 열 × 8바이트씩 = 32바이트) ---
             uint8x16_t w01 = vld1q_u8((const uint8_t *) b_ptr->qs);        // 열0,1의 8바이트씩
             uint8x16_t w23 = vld1q_u8((const uint8_t *)b_ptr->qs + 16);   // 열2,3의 8바이트씩
-            float16x4_t bd = vld1_f16((const uint8_t *)b_ptr->d);         // 열마다 scale (__fp16[4])
+            float16x4_t bd = vld1_f16((const __fp16 *)b_ptr->d);         // 열마다 scale (__fp16[4])
 
             // 2비트 마스크
             const uint8x16_t m2 = vdupq_n_u8(0x03);
