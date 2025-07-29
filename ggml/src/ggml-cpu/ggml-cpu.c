@@ -72,6 +72,40 @@
 #define UNUSED GGML_UNUSED
 #define SWAP(x, y, T) do { T SWAP = x; (x) = y; (y) = SWAP; } while (0)
 
+
+#if defined(__ANDROID__) // 수정
+    #if defined(__x86_64__)
+    #define __NR_sched_setaffinity 203
+    #elif defined(__arm__)
+    #define __NR_sched_setaffinity 241
+    #elif defined(__aarch64__)
+    #define __NR_sched_setaffinity 122
+    #endif
+    #define CPU_SETSIZE 1024
+    #define __NCPUBITS (8 * sizeof (unsigned long))
+    typedef struct {
+        unsigned long __bits[CPU_SETSIZE / __NCPUBITS];
+    } cpu_set_t;
+
+    void CPU_ZERO(cpu_set_t *set) {
+        memset(set, 0, sizeof(cpu_set_t));
+    }
+
+    void CPU_SET(int cpu, cpu_set_t *set) {
+        set->__bits[cpu / __NCPUBITS] |= (1UL << (cpu % __NCPUBITS));
+    }
+
+    // Define sched_setaffinity using syscall
+    int sched_setaffinity(pid_t pid, size_t cpusetsize, const cpu_set_t *mask) {
+        int result = syscall(__NR_sched_setaffinity, pid, cpusetsize, mask);
+        if (result != 0) {
+            errno = result;
+            return -1;
+        }
+        return 0;
+    }
+#endif
+
 // precomputed f32 table for f16 (256 KB) (simd-mappings.h)
 float ggml_table_f32_f16[1 << 16];
 
@@ -2958,21 +2992,24 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
             sync_duration = (synch_end_time - synch_start_time) * 1000; // 수정
         }
 
-        #pragma omp critical
+        #pragma omp critical // 수정
         {   
+            unsigned cpu, node_;
+            syscall(__NR_getcpu, &cpu, &node_, NULL);
+
             if (strstr(node->name, "attn_norm") != NULL){
                 attn_start_time = omp_get_wtime();
             }
             if (strstr(node->name, "ffn_norm") != NULL){
                 ffn_start_time = omp_get_wtime();
-                printf("%dth thread *attention*   = %f ms\n", state->ith, (ffn_start_time - attn_start_time) * 1000);
+                printf("%dth thread, %d core *attention*   = %f ms\n", state->ith, cpu,(ffn_start_time - attn_start_time) * 1000);
             }
             if (strstr(node->name, "l_out") != NULL){
                 ffn_end_time = omp_get_wtime();
-                printf("%dth thread *feedforward* = %f ms\n", state->ith, (ffn_end_time - ffn_start_time) * 1000);
+                printf("%dth thread, %d core *feedforward* = %f ms\n", state->ith, cpu, (ffn_end_time - ffn_start_time) * 1000);
             }
             if (strstr(node->name, "result_output") != NULL){
-                printf("%dth thread *classifier*  = %f ms\n", state->ith, compute_duration + sync_duration);
+                printf("%dth thread, %d core *classifier*  = %f ms\n", state->ith, cpu, compute_duration + sync_duration);
             }
         }
         //수정
@@ -3253,6 +3290,11 @@ enum ggml_status ggml_graph_compute(struct ggml_cgraph * cgraph, struct ggml_cpl
                 n_threads = omp_get_num_threads();
                 atomic_store_explicit(&threadpool->n_threads_cur, n_threads, memory_order_relaxed);
             }
+            
+            cpu_set_t set; // 수정
+            CPU_ZERO(&set); // 수정
+            CPU_SET(omp_get_thread_num() + 4, &set); // 수정
+            sched_setaffinity(0, sizeof(cpu_set_t), &set); // 수정
 
             ggml_graph_compute_thread(&threadpool->workers[omp_get_thread_num()]);
         }
