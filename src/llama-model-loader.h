@@ -30,7 +30,7 @@ struct llama_model_loader {
         size_t   offs; // tensor data offset in the original file
 
         ggml_tensor * tensor;
-
+        
         llama_tensor_weight(const llama_file * file, uint16_t idx, const struct gguf_context * gguf_ctx, ggml_tensor * tensor) : idx(idx), tensor(tensor) {
             const int tensor_idx = gguf_find_tensor(gguf_ctx,  ggml_get_name(tensor));
             if (tensor_idx < 0) {

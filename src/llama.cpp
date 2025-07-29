@@ -93,8 +93,11 @@ static int llama_model_load(const std::string & fname, std::vector<std::string> 
     model.t_start_us = tm.t_start_us;
 
     try {
+        printf("ml\n"); // 수정
+        printf("%d\n", params.check_tensors);
         llama_model_loader ml(fname, splits, params.use_mmap, params.check_tensors, params.kv_overrides, params.tensor_buft_overrides);
 
+        printf("print_info\n"); // 수정
         ml.print_info();
 
         model.hparams.vocab_only = params.vocab_only;
@@ -102,16 +105,19 @@ static int llama_model_load(const std::string & fname, std::vector<std::string> 
         try {
             model.load_arch(ml);
         } catch(const std::exception & e) {
+            printf("load_arch\n"); // 수정
             throw std::runtime_error("error loading model architecture: " + std::string(e.what()));
         }
         try {
             model.load_hparams(ml);
         } catch(const std::exception & e) {
+            printf("load_hparams\n"); // 수정
             throw std::runtime_error("error loading model hyperparameters: " + std::string(e.what()));
         }
         try {
             model.load_vocab(ml);
         } catch(const std::exception & e) {
+            printf("load_vocab\n"); // 수정
             throw std::runtime_error("error loading model vocabulary: " + std::string(e.what()));
         }
 
@@ -219,6 +225,7 @@ static struct llama_model * llama_model_load_from_file_impl(
     }
 
     const int status = llama_model_load(path_model, splits, *model, params);
+
     GGML_ASSERT(status <= 0);
     if (status < 0) {
         if (status == -1) {
