@@ -39,7 +39,8 @@
 #endif
 #include <sched.h> // 수정
 #include <unistd.h> // 수정
-#include <sys/syscall.h> // 수정정
+#include <sys/syscall.h> // 수정
+#include <omp.h> // 수정
 
 #ifdef GGML_USE_OPENMP
 #include <omp.h>
