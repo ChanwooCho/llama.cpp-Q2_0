@@ -275,6 +275,72 @@ void ggml_gemv_q4_0_4x4_q8_0(int n, float * GGML_RESTRICT s, size_t bs, const vo
     ggml_gemv_q4_0_4x4_q8_0_generic(n, s, bs, vx, vy, nr, nc);
 }
 
+void ggml_gemv_q4_0_4x8_q8_0(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, const void * GGML_RESTRICT vy, int nr, int nc) {
+    const int qk = QK8_0;
+    const int nb = n / qk;
+    const int ncols_interleaved = 4;
+    const int blocklen = 8;
+
+    assert (n % qk == 0);
+    assert (nc % ncols_interleaved == 0);
+
+    UNUSED(s);
+    UNUSED(bs);
+    UNUSED(vx);
+    UNUSED(vy);
+    UNUSED(nr);
+    UNUSED(nc);
+    UNUSED(nb);
+    UNUSED(ncols_interleaved);
+    UNUSED(blocklen);
+
+#if ! ((defined(_MSC_VER)) && ! defined(__clang__)) && defined(__aarch64__) && defined(__ARM_NEON) && defined(__ARM_FEATURE_DOTPROD)
+    const block_q4_0x4 * b_ptr = (const block_q4_0x4 *) vx;
+
+    for (int c = 0; c < nc; c += ncols_interleaved) {
+        const block_q8_0 * a_ptr = (const block_q8_0 *) vy;
+        float32x4_t acc = vdupq_n_f32(0);
+        for (int b = 0; b < nb; b++) {
+            int8x16_t b0 = vld1q_s8((const int8_t *) b_ptr->qs);
+            int8x16_t b1 = vld1q_s8((const int8_t *) b_ptr->qs + 16);
+            int8x16_t b2 = vld1q_s8((const int8_t *) b_ptr->qs + 32);
+            int8x16_t b3 = vld1q_s8((const int8_t *) b_ptr->qs + 48);
+            float16x4_t bd = vld1_f16((const __fp16 *) b_ptr->d);
+
+            int8x16_t a0 = (int8x16_t) vld1q_dup_s64((const int64_t *) a_ptr->qs);
+            int8x16_t a1 = (int8x16_t) vld1q_dup_s64((const int64_t *) a_ptr->qs + 1);
+            int8x16_t a2 = (int8x16_t) vld1q_dup_s64((const int64_t *) a_ptr->qs + 2);
+            int8x16_t a3 = (int8x16_t) vld1q_dup_s64((const int64_t *) a_ptr->qs + 3);
+            float16x4_t ad = vld1_dup_f16((const __fp16 *) &a_ptr->d);
+
+            int32x4_t ret0 = vdupq_n_s32(0);
+            int32x4_t ret1 = vdupq_n_s32(0);
+
+            ret0 = vdotq_s32(ret0, b0 << 4, a0);
+            ret1 = vdotq_s32(ret1, b1 << 4, a0);
+            ret0 = vdotq_s32(ret0, b2 << 4, a1);
+            ret1 = vdotq_s32(ret1, b3 << 4, a1);
+
+            ret0 = vdotq_s32(ret0, b0 & 0xf0U, a2);
+            ret1 = vdotq_s32(ret1, b1 & 0xf0U, a2);
+            ret0 = vdotq_s32(ret0, b2 & 0xf0U, a3);
+            ret1 = vdotq_s32(ret1, b3 & 0xf0U, a3);
+
+            int32x4_t ret = vpaddq_s32(ret0, ret1);
+
+            acc = vfmaq_f32(acc, vcvtq_n_f32_s32(ret, 4),
+                    vmulq_f32(vcvt_f32_f16(ad), vcvt_f32_f16(bd)));
+            a_ptr++;
+            b_ptr++;
+        }
+        vst1q_f32(s, acc);
+        s += ncols_interleaved;
+    }
+    return;
+#endif // #if ! ((defined(_MSC_VER)) && ! defined(__clang__)) && defined(__aarch64__) && defined(__ARM_NEON) && defined(__ARM_FEATURE_DOTPROD)
+    ggml_gemv_q4_0_4x8_q8_0_generic(n, s, bs, vx, vy, nr, nc);
+}
+
 void ggml_gemv_q4_0_8x8_q8_0(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, const void * GGML_RESTRICT vy, int nr, int nc) {
     const int qk = QK8_0;
     const int nb = n / qk;
