@@ -206,62 +206,83 @@ void ggml_gemv_q4_0_4x4_q8_0(int n, float * GGML_RESTRICT s, size_t bs, const vo
 
 #if ! ((defined(_MSC_VER)) && ! defined(__clang__)) && defined(__aarch64__) && defined(__ARM_NEON) && defined(__ARM_FEATURE_DOTPROD)
     const block_q4_0x4 * b_ptr = (const block_q4_0x4 *) vx;
-    const uint8x16_t m3 = vdupq_n_u8(0x3);
-    const int8x16_t zp = vdupq_n_s8(1);
+    
+    static const uint8_t kNib2Pair[16] = {
+        0x00,0x01,0x02,0x03, 
+        0x10,0x11,0x12,0x13,
+        0x20,0x21,0x22,0x23, 
+        0x30,0x31,0x32,0x33
+    };
+    const uint8x16_t T   = vld1q_u8(kNib2Pair);
+    const uint8x16_t m0F = vdupq_n_u8(0x0F);
+    const int8x16_t  zp1 = vdupq_n_s8(1);
+
     for (int c = 0; c < nc; c += ncols_interleaved) {
         const block_q8_0 * a_ptr = (const block_q8_0 *) vy;
         float32x4_t acc = vdupq_n_f32(0);
         for (int b = 0; b < nb; b++) {
-            // 2Bit Simulation 하기위해 2개만 load
+            // ---- B(2bit packed) 32개 로드: 16B + 16B ----
             int8x16_t b0 = vld1q_s8((const int8_t *) b_ptr->qs);
             int8x16_t b1 = vld1q_s8((const int8_t *) b_ptr->qs + 16);
-            float16x4_t bd = vld1_f16((const __fp16 *) b_ptr->d);
 
+            // ---- A(q8_0) 32개 로드 ----
             int8x16_t a0 = vld1q_s8(a_ptr->qs);
             int8x16_t a1 = vld1q_s8(a_ptr->qs + qk/2);
-            float16x4_t ad = vld1_dup_f16((const __fp16 *) &a_ptr->d);
 
-            uint8x16_t u0_0 = vandq_u8(b0, m3);
-            uint8x16_t u1_0 = vandq_u8(vshrq_n_u8(b0, 2), m3);
-            uint8x16_t u2_0 = vandq_u8(vshrq_n_u8(b0, 4), m3);
-            uint8x16_t u3_0 = vshrq_n_u8(b0, 6);
+            // ---- 2bit 언팩 (b0) : TBL 2회 + 마스크 2회 ----
+            uint8x16_t x0  = vreinterpretq_u8_s8(b0);
+            uint8x16_t lo0 = vandq_u8(x0, m0F);
+            uint8x16_t hi0 = vshrq_n_u8(x0, 4);
+            uint8x16_t p0l = vqtbl1q_u8(T, lo0);   // [a0 | a1<<4]
+            uint8x16_t p0h = vqtbl1q_u8(T, hi0);   // [a2 | a3<<4]
+            uint8x16_t a0u = vandq_u8(p0l, m0F);
+            uint8x16_t a1u = vshrq_n_u8(p0l, 4);
+            uint8x16_t a2u = vandq_u8(p0h, m0F);
+            uint8x16_t a3u = vshrq_n_u8(p0h, 4);
+            int8x16_t  s0_0 = vsubq_s8(vreinterpretq_s8_u8(a0u), zp1);
+            int8x16_t  s1_0 = vsubq_s8(vreinterpretq_s8_u8(a1u), zp1);
+            int8x16_t  s2_0 = vsubq_s8(vreinterpretq_s8_u8(a2u), zp1);
+            int8x16_t  s3_0 = vsubq_s8(vreinterpretq_s8_u8(a3u), zp1);
 
-            uint8x16_t u0_1 = vandq_u8(b1, m3);
-            uint8x16_t u1_1 = vandq_u8(vshrq_n_u8(b1, 2), m3);
-            uint8x16_t u2_1 = vandq_u8(vshrq_n_u8(b1, 4), m3);
-            uint8x16_t u3_1 = vshrq_n_u8(b1, 6);
+            // ---- 2bit 언팩 (b1) ----
+            uint8x16_t x1  = vreinterpretq_u8_s8(b1);
+            uint8x16_t lo1 = vandq_u8(x1, m0F);
+            uint8x16_t hi1 = vshrq_n_u8(x1, 4);
+            uint8x16_t p1l = vqtbl1q_u8(T, lo1);
+            uint8x16_t p1h = vqtbl1q_u8(T, hi1);
+            uint8x16_t b0u = vandq_u8(p1l, m0F);
+            uint8x16_t b1u = vshrq_n_u8(p1l, 4);
+            uint8x16_t b2u = vandq_u8(p1h, m0F);
+            uint8x16_t b3u = vshrq_n_u8(p1h, 4);
+            int8x16_t  s0_1 = vsubq_s8(vreinterpretq_s8_u8(b0u), zp1);
+            int8x16_t  s1_1 = vsubq_s8(vreinterpretq_s8_u8(b1u), zp1);
+            int8x16_t  s2_1 = vsubq_s8(vreinterpretq_s8_u8(b2u), zp1);
+            int8x16_t  s3_1 = vsubq_s8(vreinterpretq_s8_u8(b3u), zp1);
 
-            // 0..2  →  -1..1 (zero-point = 1)
-            int8x16_t s0_0 = vsubq_s8(vreinterpretq_s8_u8(u0_0), zp);
-            int8x16_t s1_0 = vsubq_s8(vreinterpretq_s8_u8(u1_0), zp);
-            int8x16_t s2_0 = vsubq_s8(vreinterpretq_s8_u8(u2_0), zp);
-            int8x16_t s3_0 = vsubq_s8(vreinterpretq_s8_u8(u3_0), zp);
-
-            int8x16_t s0_1 = vsubq_s8(vreinterpretq_s8_u8(u0_1), zp);
-            int8x16_t s1_1 = vsubq_s8(vreinterpretq_s8_u8(u1_1), zp);
-            int8x16_t s2_1 = vsubq_s8(vreinterpretq_s8_u8(u2_1), zp);
-            int8x16_t s3_1 = vsubq_s8(vreinterpretq_s8_u8(u3_1), zp);
-
+            // ---- dotprod: lanes 0..3 ----
             int32x4_t ret = vdupq_n_s32(0);
-            // 앞 16개( lanes 0..3 )
             ret = vdotq_laneq_s32(ret, s0_0, a0, 0);
             ret = vdotq_laneq_s32(ret, s1_0, a0, 1);
             ret = vdotq_laneq_s32(ret, s2_0, a0, 2);
             ret = vdotq_laneq_s32(ret, s3_0, a0, 3);
-            // 뒤 16개( lanes 0..3 )
             ret = vdotq_laneq_s32(ret, s0_1, a1, 0);
             ret = vdotq_laneq_s32(ret, s1_1, a1, 1);
             ret = vdotq_laneq_s32(ret, s2_1, a1, 2);
             ret = vdotq_laneq_s32(ret, s3_1, a1, 3);
 
-            acc = vfmaq_f32(acc, vcvtq_f32_s32(ret),
-                            vmulq_f32(vcvt_f32_f16(ad), vcvt_f32_f16(bd)));
-            a_ptr++;
-            b_ptr++;
+            // ---- scale 곱 ----
+            float16x4_t bd  = vld1_f16((const __fp16 *) b_ptr->d);
+            float16x4_t ad  = vld1_dup_f16((const __fp16 *) &a_ptr->d);
+            float32x4_t fbd = vmulq_f32(vcvt_f32_f16(ad), vcvt_f32_f16(bd));
+
+            acc = vfmaq_f32(acc, vcvtq_f32_s32(ret), fbd);
+
+            ++a_ptr;
+            ++b_ptr;
         }
         vst1q_f32(s, acc);
         s += ncols_interleaved;
-    }
+    }   
     return;
 #endif // #if ! ((defined(_MSC_VER)) && ! defined(__clang__)) && defined(__aarch64__) && defined(__ARM_NEON) && defined(__ARM_FEATURE_DOTPROD)
     ggml_gemv_q4_0_4x4_q8_0_generic(n, s, bs, vx, vy, nr, nc);
