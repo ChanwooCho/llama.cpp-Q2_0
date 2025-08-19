@@ -221,22 +221,15 @@ void ggml_gemv_q4_0_4x4_q8_0(int n, float * GGML_RESTRICT s, size_t bs, const vo
             int8x16_t a1 = vld1q_s8(a_ptr->qs + qk/2);
             float16x4_t ad = vld1_dup_f16((const __fp16 *) &a_ptr->d);
 
-            // 2bit 스트림 4개 추출 (각각 열 0..3에 해당)
             uint8x16_t u0_0 = vandq_u8(b0, m3);
-            b0 = vshrq_n_u8(b0, 2);
-            uint8x16_t u1_0 = vandq_u8(b0, m3);
-            b0 = vshrq_n_u8(b0, 2);
-            uint8x16_t u2_0 = vandq_u8(b0, m3);
-            b0 = vshrq_n_u8(b0, 2);
-            uint8x16_t u3_0 = vandq_u8(b0, m3);
+            uint8x16_t u1_0 = vandq_u8(vshrq_n_u8(b0, 2), m3);
+            uint8x16_t u2_0 = vandq_u8(vshrq_n_u8(b0, 4), m3);
+            uint8x16_t u3_0 = vshrq_n_u8(b0, 6);
 
             uint8x16_t u0_1 = vandq_u8(b1, m3);
-            b1 = vshrq_n_u8(b1, 2);
-            uint8x16_t u1_1 = vandq_u8(b1, m3);
-            b1 = vshrq_n_u8(b1, 2);
-            uint8x16_t u2_1 = vandq_u8(b1, m3);
-            b1 = vshrq_n_u8(b1, 2);
-            uint8x16_t u3_1 = vandq_u8(b1, m3);
+            uint8x16_t u1_1 = vandq_u8(vshrq_n_u8(b1, 2), m3);
+            uint8x16_t u2_1 = vandq_u8(vshrq_n_u8(b1, 4), m3);
+            uint8x16_t u3_1 = vshrq_n_u8(b1, 6);
 
             // 0..2  →  -1..1 (zero-point = 1)
             int8x16_t s0_0 = vsubq_s8(vreinterpretq_s8_u8(u0_0), zp);
@@ -250,7 +243,6 @@ void ggml_gemv_q4_0_4x4_q8_0(int n, float * GGML_RESTRICT s, size_t bs, const vo
             int8x16_t s3_1 = vsubq_s8(vreinterpretq_s8_u8(u3_1), zp);
 
             int32x4_t ret = vdupq_n_s32(0);
-
             // 앞 16개( lanes 0..3 )
             ret = vdotq_laneq_s32(ret, s0_0, a0, 0);
             ret = vdotq_laneq_s32(ret, s1_0, a0, 1);
